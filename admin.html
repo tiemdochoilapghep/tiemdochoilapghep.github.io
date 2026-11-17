@@ -319,7 +319,7 @@ function login(p) {
   p = p || $('pw').value; $('lerr').textContent = '';
   run('adminLogin', p).then(function (r) {
     PASS = p; try { sessionStorage.setItem('qr_admin', p); } catch (e) {}
-    if (r.url) BASE = r.url; if (r.shop) SHOP = r.shop; SET = r.settings || {};
+    if (r.url && !/github\.io$/.test(location.hostname)) BASE = r.url; if (r.shop) SHOP = r.shop; SET = r.settings || {};
     $('lg').classList.add('hide'); $('app').classList.remove('hide');
     loadProducts().then(loadAll);
     timer = setInterval(function () { if (!$('om').classList.contains('on') && !$('km').classList.contains('on')) loadAll(true); }, 60000);
