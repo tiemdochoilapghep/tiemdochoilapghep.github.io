@@ -149,6 +149,14 @@ textarea.f{min-height:64px;resize:vertical}
 .zoom.on{display:flex}.zoom img{max-width:100%;max-height:70vh;background:#fff;border-radius:10px}
 .zoom p{max-width:560px;text-align:center;font-size:14px;line-height:1.5}
 .load{text-align:center;padding:50px 0;color:var(--mut)}
+.gps{display:flex;gap:8px;margin:0 0 6px}.gps button{flex:1;border:1px solid #2556b8;background:#eef3fd;color:#2556b8;font:inherit;font-size:13px;font-weight:700;border-radius:10px;padding:9px 8px;cursor:pointer}.gps button:disabled{opacity:.5}
+.gpsok{font-size:12px;color:#13734d;margin-top:4px}.gpsok a{color:#2556b8}
+.mapov{position:fixed;inset:0;z-index:40;background:#fff;display:none;flex-direction:column}.mapov.on{display:flex}
+.mapov .mh{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:700}.mapov .mh span{flex:1}
+#gmap{flex:1;position:relative}
+.mapov .pin{position:absolute;left:50%;top:50%;z-index:500;width:34px;height:34px;margin:-34px 0 0 -17px;pointer-events:none}
+.mapov .mf{padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.mapov .ma2{font-size:13px;min-height:36px;margin-bottom:8px;color:var(--ink)}
 </style>
 </head>
 <body>
@@ -378,7 +386,9 @@ function formHtml() {
     '<label>Tên cửa hàng / đại lý</label><input class="f" id="f_ch" value="' + esc(d.cuahang) + '">' +
     '<div class="row2"><div><label>Số điện thoại <i>*</i></label><input class="f" id="f_sdt" inputmode="tel" value="' + esc(d.sdt) + '" autocomplete="tel"></div>' +
     '<div><label>Tỉnh / thành</label><input class="f" id="f_tinh" value="' + esc(d.tinh) + '"></div></div>' +
-    '<label>Địa chỉ nhận hàng <i>*</i></label><textarea class="f" id="f_dc" autocomplete="street-address">' + esc(d.diachi) + '</textarea>' +
+    '<label>Địa chỉ nhận hàng <i>*</i></label>' +
+    '<div class="gps"><button type="button" id="g_now" onclick="gpsNow()">📍 Vị trí hiện tại</button><button type="button" onclick="mapOpen()">🗺️ Chọn trên bản đồ</button></div>' +
+    '<textarea class="f" id="f_dc" autocomplete="street-address" placeholder="Số nhà, đường, phường/xã…">' + esc(d.diachi) + '</textarea><div id="g_st"></div>' +
     '<label>Ghi chú</label><textarea class="f" id="f_gc" placeholder="Thời gian nhận, yêu cầu khác…"></textarea>' + hdHtml() +
     '<div class="err" id="f_err"></div>' +
     '<div style="display:flex;gap:10px;margin-top:6px"><button class="btn sec" style="flex:1" onclick="openSheet(cartHtml())">Xem giỏ</button><button class="btn" style="flex:2" id="f_go" onclick="submitOrder()">Gửi đơn hàng</button></div>' +
@@ -404,7 +414,7 @@ function hdType() {
 }
 function submitOrder() {
   var o = { ten: $('f_ten').value.trim(), cuahang: $('f_ch').value.trim(), sdt: $('f_sdt').value.replace(/\s|\./g, ''), tinh: $('f_tinh').value.trim(),
-    diachi: $('f_dc').value.trim(), ghichu: $('f_gc').value.trim(), nguon: (SP0 ? 'QR sp ' + SP0 : (NHOM0 ? 'QR nhóm ' + NHOM0 : 'QR chung')) + (NV ? ' · ' + NV : ''), nv: NV };
+    diachi: $('f_dc').value.trim(), ghichu: $('f_gc').value.trim() + (GEO ? ($('f_gc').value.trim() ? '\n' : '') + 'Định vị: https://maps.google.com/?q=' + GEO.lat + ',' + GEO.lng : ''), nguon: (SP0 ? 'QR sp ' + SP0 : (NHOM0 ? 'QR nhóm ' + NHOM0 : 'QR chung')) + (NV ? ' · ' + NV : ''), nv: NV };
   if (!o.ten || !o.sdt || !o.diachi) { $('f_err').textContent = 'Vui lòng nhập họ tên, số điện thoại và địa chỉ.'; return; }
   if (!/^(\+?84|0)\d{8,10}$/.test(o.sdt)) { $('f_err').textContent = 'Số điện thoại chưa đúng.'; return; }
   if ($('hd_on') && $('hd_on').checked) {
@@ -445,6 +455,81 @@ function submitOrder() {
       '<p class="note">Nếu không thấy mục cài đặt, hãy mở trang bằng trình duyệt Chrome (Android) hoặc Safari (iPhone) thay vì mở trong Zalo/Facebook.</p></div>');
   };
 })();
+
+/* ---- định vị địa chỉ nhận hàng ---- */
+var GEO = null, LMAP = null;
+function geoSt(h) { var e = $('g_st'); if (e) e.innerHTML = h; }
+function revGeo(lat, lng) {
+  return fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&accept-language=vi&lat=' + lat + '&lon=' + lng)
+    .then(function (r) { return r.json(); }).then(function (j) {
+      var a = j.address || {}, tinh = a.state || a.city || a.province || '';
+      var parts = [a.house_number, a.road || a.pedestrian || a.footway, a.hamlet || a.village || a.neighbourhood || a.quarter, a.suburb || a.town || a.city_district, a.county, a.city && a.city !== tinh ? a.city : ''];
+      var dc = parts.filter(function (x, i, arr) { return x && arr.indexOf(x) === i; }).join(', ');
+      return { dc: dc || (j.display_name || '').replace(/, Việt Nam$/, ''), tinh: tinh.replace(/^(Tỉnh|Thành phố) /, '') };
+    });
+}
+function geoApply(lat, lng) {
+  lat = (+lat).toFixed(6); lng = (+lng).toFixed(6); GEO = { lat: lat, lng: lng };
+  var link = 'https://maps.google.com/?q=' + lat + ',' + lng;
+  geoSt('<div class="gpsok">Đang tìm địa chỉ…</div>');
+  return revGeo(lat, lng).then(function (r) {
+    if (r.dc && $('f_dc')) $('f_dc').value = r.dc;
+    if (r.tinh && $('f_tinh')) $('f_tinh').value = r.tinh;
+    geoSt('<div class="gpsok">✓ Đã lấy vị trí · <a href="' + link + '" target="_blank" rel="noopener">xem bản đồ</a>. Vui lòng bổ sung số nhà / tên đường nếu còn thiếu.</div>');
+  }).catch(function () {
+    geoSt('<div class="gpsok">✓ Đã ghi toạ độ (<a href="' + link + '" target="_blank" rel="noopener">xem bản đồ</a>) nhưng chưa tra được tên đường – vui lòng gõ thêm địa chỉ.</div>');
+  });
+}
+function gpsGet() {
+  return new Promise(function (ok, no) {
+    if (!navigator.geolocation) return no({ code: 9 });
+    navigator.geolocation.getCurrentPosition(function (p) { ok(p.coords); }, no, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+  });
+}
+function gpsErr(e) {
+  var m = e && e.code === 1 ? 'Bạn chưa cho phép truy cập vị trí. Vào cài đặt trình duyệt → Quyền vị trí → Cho phép, rồi bấm lại.' :
+    e && e.code === 9 ? 'Máy này không hỗ trợ định vị.' : 'Chưa lấy được vị trí (bật GPS / Vị trí trên điện thoại rồi thử lại).';
+  geoSt('<div class="err" style="margin-top:4px">' + m + '</div>');
+}
+function gpsNow() {
+  var b = $('g_now'); b.disabled = true; geoSt('<div class="gpsok">Đang xác định vị trí…</div>');
+  gpsGet().then(function (c) { return geoApply(c.latitude, c.longitude); }, gpsErr).then(function () { b.disabled = false; });
+}
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  return new Promise(function (ok, no) {
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(l);
+    var s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s);
+  });
+}
+var MTO = null;
+function mapAddr() {
+  var c = LMAP.getCenter(); $('m_ad').textContent = 'Đang tìm địa chỉ…'; clearTimeout(MTO);
+  MTO = setTimeout(function () { revGeo(c.lat, c.lng).then(function (r) { $('m_ad').textContent = (r.dc || '') + (r.tinh ? ', ' + r.tinh : ''); }, function () { $('m_ad').textContent = 'Vị trí: ' + c.lat.toFixed(5) + ', ' + c.lng.toFixed(5); }); }, 700);
+}
+function mapOpen() {
+  var ov = $('mapov');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'mapov'; ov.className = 'mapov';
+    ov.innerHTML = '<div class="mh"><span>Kéo bản đồ để ghim đúng chỗ nhận hàng</span><button class="x" onclick="mapClose()">×</button></div>' +
+      '<div id="gmap"><svg class="pin" viewBox="0 0 24 24"><path fill="#ff6a4d" stroke="#fff" stroke-width="1.5" d="M12 1.5a7.5 7.5 0 0 0-7.5 7.5c0 5.6 7.5 13.5 7.5 13.5s7.5-7.9 7.5-13.5A7.5 7.5 0 0 0 12 1.5z"/><circle cx="12" cy="9" r="2.8" fill="#fff"/></svg></div>' +
+      '<div class="mf"><div class="ma2" id="m_ad">Đang tải bản đồ…</div><div style="display:flex;gap:8px"><button class="btn sec" style="flex:1" onclick="mapMe()">📍 Vị trí của tôi</button><button class="btn" style="flex:2" onclick="mapPick()">Chọn vị trí này</button></div></div>';
+    document.body.appendChild(ov);
+  }
+  ov.classList.add('on');
+  loadLeaflet().then(function () {
+    if (!LMAP) {
+      var c0 = GEO ? [+GEO.lat, +GEO.lng] : [20.86, 106.68];
+      LMAP = L.map('gmap', { zoomControl: true, attributionControl: true }).setView(c0, GEO ? 17 : 12);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(LMAP);
+      LMAP.on('moveend', mapAddr);
+      if (!GEO) mapMe(); else mapAddr();
+    } else { setTimeout(function () { LMAP.invalidateSize(); }, 50); mapAddr(); }
+  }, function () { $('m_ad').textContent = 'Không tải được bản đồ, vui lòng kiểm tra mạng.'; });
+}
+function mapMe() { gpsGet().then(function (c) { LMAP.setView([c.latitude, c.longitude], 17); }, function (e) { $('m_ad').textContent = e && e.code === 1 ? 'Chưa cho phép truy cập vị trí – kéo bản đồ để chọn thủ công.' : 'Chưa lấy được vị trí – kéo bản đồ để chọn thủ công.'; }); }
+function mapClose() { var ov = $('mapov'); if (ov) ov.classList.remove('on'); }
+function mapPick() { var c = LMAP.getCenter(); mapClose(); geoApply(c.lat, c.lng); }
 </script>
 </body>
 </html>
